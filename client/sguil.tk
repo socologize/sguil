@@ -2349,6 +2349,10 @@ set topFrame [frame .topFrame]
       set textSummaryMenu [menu $reportList.textSummary -tearoff 0]
       $textSummaryMenu add command -label "Normal" -command {TextReport 0 0}
       $textSummaryMenu add command -label "Sanitized" -command {TextReport 0 1}
+    $reportList add cascade -label "Send Event via REST" -menu $reportList.rest
+      set restMenu [menu $reportList.rest -tearoff 0]
+      $restMenu add command -label "Normal" -command {EmailEvents 1 0}
+      $restMenu add command -label "Sanitized" -command {EmailEvents 1 1}
     $reportList add cascade -label "Send Event Detail via email" -menu $reportList.detail
       set detailMenu [menu $reportList.detail -tearoff 0]
       $detailMenu add command -label "Normal" -command {EmailEvents 1 0}
