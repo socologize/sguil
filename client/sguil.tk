@@ -115,22 +115,6 @@ namespace import -force iwidgets::promptdialog
 namespace import -force iwidgets::feedback
 namespace import -force iwidgets::shell
 
-# Load ElasticSearch required packages
-foreach p { http tls json json::write } {
-
-    if [catch {package require $p} pVersion]   {
-
-        tk_messageBox -type ok -icon warning -message "Error: The $p package does NOT appear to be installed on this system.\n\nSearching ElasticSearch will not perform correctly."
-        break
-
-    }
-
-}
-
-::http::register https 443 ::tls::socket
-
-
-
 # Default global vars
 set ACTIVE_EVENT 0
 set MULTI_SELECT 0
@@ -157,10 +141,6 @@ set CUR_SEL_FRAME(name) 0
 set COUNTER 0
 set SEARCHFRAME 1
 set SELECT_LIMIT 1000
-set ES_PROFILE(host) {https://192.168.8.10}
-set ES_PROFILE(user) {}
-set ES_PROFILE(pass) {}
-set ES_PROFILE(auth) false
 
 # Grab the bgerror so we can intercept panedwindow conflicts
 auto_load bgerror
@@ -428,9 +408,7 @@ proc GetComment {} {
 proc ValidateEvent { status {c_flag {0}} } {
 
     global ACTIVE_EVENT CUR_SEL_PANE eventArray correlateArray socketID DEBUG
-    global MULTI_SELECT CONNECTED generatorListMap sigIDListMap BUSY
-
-    if { $BUSY } { bell; return }
+    global MULTI_SELECT CONNECTED generatorListMap sigIDListMap
 
     if {!$CONNECTED} {
 
@@ -689,7 +667,7 @@ proc InsertQueryResults { paneName results } {
 
 proc InsertEventQueryResults { paneName results } {
 
-    global CAT
+    global CATEGORY_COLOR
 
     if { $results == "done" } { [winfo parent $paneName] configure -cursor left_ptr; return }
 
@@ -697,13 +675,13 @@ proc InsertEventQueryResults { paneName results } {
 
     if { $status == "0" } {
 
-        set statusName RT
+        set status RT
         set statusColor [GetColorByPriority [lindex $results 1]]
 
     } else {
 
-        set statusColor [lindex $CAT($status) 2]
-        set statusName [lindex $CAT($status) 1]
+        set status [GetStatusNameByNumber $status]
+        set statusColor $CATEGORY_COLOR($status)
 
     }
 
@@ -720,17 +698,17 @@ proc InsertEventQueryResults { paneName results } {
     set sigID [lindex $results 13]
     set sigRev [lindex $results 14]
 
-    DisplayEvent $paneName $statusName [lindex $results 1] 1 $sensor $dateTime $eventID $message\
+    DisplayEvent $paneName $status [lindex $results 1] 1 $sensor $dateTime $eventID $message\
      $srcIP $dstIP $protocol $srcPort $dstPort $statusColor $genID $sigID $sigRev
 
 }
 
 proc InsertEscalatedEvent { data } {
  
-    global CAT escalateFrame RT_SORT
+    global CATEGORY_COLOR escalateFrame RT_SORT
 
-    set statusName ES
-    set statusColor [lindex $CAT(2) 2]
+    set status ES
+    set statusColor $CATEGORY_COLOR($status)
     set sensor [lindex $data 3]
     set dateTime [lindex $data 4]
     set eventID [join [lrange $data 5 6] .]
@@ -744,7 +722,7 @@ proc InsertEscalatedEvent { data } {
     set sigID [lindex $data 14]
     set sigRev [lindex $data 15]
 
-    DisplayEvent $escalateFrame.tablelist $statusName [lindex $data 1] 1 $sensor $dateTime $eventID $message\
+    DisplayEvent $escalateFrame.tablelist $status [lindex $data 1] 1 $sensor $dateTime $eventID $message\
      $srcIP $dstIP $protocol $srcPort $dstPort $statusColor $genID $sigID $sigRev
 
     if { $RT_SORT($escalateFrame.tablelist) } {
@@ -889,7 +867,7 @@ proc ClearGenericDetail {} {
 
     global genericText 
 
-    $genericText clear
+    $genericText delete 0.0 end
 
 }
 
@@ -1490,17 +1468,12 @@ proc LaunchRightClickMenu { win x y cellWin } {
         switch -exact $columnName {
 
             srcip    { tk_popup $ipQueryMenu $tmpX $tmpY }
-            src_ip    { tk_popup $ipQueryMenu $tmpX $tmpY }
             dstip    { tk_popup $ipQueryMenu $tmpX $tmpY }
-            dst_ip    { tk_popup $ipQueryMenu $tmpX $tmpY }
             srcport  { tk_popup $portQueryMenu $tmpX $tmpY }
-            src_port  { tk_popup $portQueryMenu $tmpX $tmpY }
             dstport  { tk_popup $portQueryMenu $tmpX $tmpY }
-            dst_port  { tk_popup $portQueryMenu $tmpX $tmpY }
             status   { tk_popup $statusMenu $tmpX $tmpY }
             event    { tk_popup $sigQueryMenu $tmpX $tmpY }
             alertID  { tk_popup $eventIDMenut $tmpX $tmpY }
-            _id      { tk_popup $eventIDMenut $tmpX $tmpY }
             count    { tk_popup $correlateMenu $tmpX $tmpY }
             default  { set foo bar }
 
@@ -1519,7 +1492,6 @@ proc QuickAction {  win x y cellWin } {
     switch -exact $columnName {
 
         alertID  { GetXscript xscript 0 }
-        _id      { GetXscript xscript 0 }
         count    { DisplayCorrelatedEvents }
         default  { set foo bar }
 
@@ -2160,13 +2132,6 @@ if { [file exists $FONTFILE] } {
 
             set SERVERHOST $tmpSERVERHOST
 
-        } elseif { [lindex $fontLine 0] == "ESProfile" } {
-
-            # ESServer server user auth
-            set ES_PROFILE(host) [lindex $fontLine 1]
-            set ES_PROFILE(user) [lindex $fontLine 2]
-            set ES_PROFILE(auth) [lindex $fontLine 3]
-   
         } else {
 
             eval font create [lindex $fontLine 0] [lrange $fontLine 1 end]
@@ -2200,10 +2165,9 @@ source $SGUILLIB/sound.tcl
 #source $SGUILLIB/SguilToolTip.tcl
 source $SGUILLIB/SguilUtil.tcl
 source $SGUILLIB/SguilAutoCat.tcl
-source $SGUILLIB/SguilElasticSearch.tcl
 
 # Load TableList
-package require tablelist 5.14
+package require tablelist 5.11
 
 # Images for tablelist checkbuttons
 if { [file exists $SGUILLIB/images/checked.gif] } {
@@ -2216,12 +2180,6 @@ if { [file exists $SGUILLIB/images/unchecked.gif] } {
 
 if { $WHOIS_PATH == "SimpleWhois" } {
   source $SGUILLIB/whois.tcl
-}
-
-if { [info exists SOUND_FILE] && [file exists $SOUND_FILE] } {
-
-    LoadSoundTransforms $SOUND_FILE
-
 }
 
 set SERVERHOSTSELECTED [lindex $SERVERHOST 0]
@@ -2329,16 +2287,21 @@ set topFrame [frame .topFrame]
     $queryList add command -label "Query Builder" -command "InvokeQryBuild empty empty"
     $queryList add command -label "Query by IP" -command "IPAddress2SQL menu"
     $queryList add cascade -label "Query by Category" -menu $queryList.category
-
     set categoryMenu [menu $queryList.category -tearoff 0]
-      foreach v [lsort [array names CAT]] {
-
-          set d [lindex $CAT($v) 0]
-
-          $categoryMenu add command -label $d -command "QueryRequest event category $v"
-
-      }
-
+      $categoryMenu add command -label "Cat I: Unauthorized Root Access"\
+	      -command "QueryRequest event category 11"
+      $categoryMenu add command -label "Cat II: Unauthorized User Access"\
+	      -command "QueryRequest event category 12"
+      $categoryMenu add command -label "Cat III: Attempted Unauthorized Access"\
+	      -command "QueryRequest event category 13"
+      $categoryMenu add command -label "Cat IV: Successful Denial of Service Attack"\
+	      -command "QueryRequest event category 14"
+      $categoryMenu add command -label "Cat V: Poor Security Practice or Policy Violation"\
+	      -command "QueryRequest event category 15"
+      $categoryMenu add command -label "Cat VI: Reconnaissance/Probes/Scans"\
+	      -command "QueryRequest event category 16"
+      $categoryMenu add command -label "Cat VII: Virus Infection"\
+	      -command "QueryRequest event category 17"
     $queryList add command -label "Show DataBase Tables" -command "ShowDBTables"
   set reportList [menu $reportMenu.menu -tearoff 0]
     $reportList add cascade -label "Export Events to a Text File (Detail)" -menu $reportList.textDetail
@@ -2349,10 +2312,7 @@ set topFrame [frame .topFrame]
       set textSummaryMenu [menu $reportList.textSummary -tearoff 0]
       $textSummaryMenu add command -label "Normal" -command {TextReport 0 0}
       $textSummaryMenu add command -label "Sanitized" -command {TextReport 0 1}
-    $reportList add cascade -label "Send Event via REST" -menu $reportList.rest
-      set restMenu [menu $reportList.rest -tearoff 0]
-      $restMenu add command -label "Normal" -command {EmailEvents 1 0}
-      $restMenu add command -label "Sanitized" -command {EmailEvents 1 1}
+    $reportList add command -label "Send Event Detail via REST" -command {RestEvents 1}
     $reportList add cascade -label "Send Event Detail via email" -menu $reportList.detail
       set detailMenu [menu $reportList.detail -tearoff 0]
       $detailMenu add command -label "Normal" -command {EmailEvents 1 0}
@@ -2637,83 +2597,13 @@ set detailDataFrame [frame [$detailPane childsite 1].packetDataFrame]
       pack $padsBannerFrame -side bottom -fill both -expand true
 
     #
-    # Detail for sguil_http from ES data
-    #
-    set sguil_httpFrame [frame $detailDataFrame.sguil_httpFrame]
-
-      #set sguil_httpDisplayButton [checkbutton $sguil_httpFrame.genericButton -variable DISPLAY_SGUIL_HTTP \
-        -command DisplaySguil_HttpDetail -text "Sguil_HTTP Detail"]
-
-      set sguil_httpDetailFrame [frame $sguil_httpFrame.detail]
-      set sguil_httpDetailTable $sguil_httpDetailFrame.table
-      set sguil_httpDetailScroll $sguil_httpDetailFrame.scroll
-
-      tablelist::tablelist $sguil_httpDetailTable \
-        -columns {7  "View"     center \
-                  15 "Field"    left
-                  60 "Value"    left} \
-        -stretch all \
-        -movablecolumns 0 \
-        -spacing 5 \
-        -instanttoggle 1 \
-        -yscrollcommand [list $sguil_httpDetailScroll set] -width 20 \
-        -editendcommand ChangeESViewStatus
-
-      $sguil_httpDetailTable columnconfigure 0 -name view -editable yes -width 0 -editwindow checkbutton -formatcommand emptyStr
-      $sguil_httpDetailTable columnconfigure 1 -name field -resizable 1
-      $sguil_httpDetailTable columnconfigure 2 -name value -resizable 1 -wrap 1
-
-      scrollbar $sguil_httpDetailScroll -orient vertical -width 10 -command [list $sguil_httpDetailTable yview]
-      pack $sguil_httpDetailTable -side left -fill both -expand true
-      pack $sguil_httpDetailScroll -side right -fill y
-
-      pack $sguil_httpDetailFrame -side top -fill both -expand true
-
-    #
-    # Detail for sguil_ssn from ES data
-    #
-    set sguil_ssnFrame [frame $detailDataFrame.sguil_ssnFrame]
-
-      set sguil_ssnDetailFrame [frame $sguil_ssnFrame.detail]
-      set sguil_ssnDetailTable $sguil_ssnDetailFrame.table
-      set sguil_ssnDetailScroll $sguil_ssnDetailFrame.scroll
-
-      tablelist::tablelist $sguil_ssnDetailTable \
-        -columns {7  "View"     center \
-                  15 "Field"    left
-                  60 "Value"    left} \
-        -stretch all \
-        -movablecolumns 0 \
-        -spacing 5 \
-        -instanttoggle 1 \
-        -yscrollcommand [list $sguil_ssnDetailScroll set] -width 20 \
-        -editendcommand ChangeESViewStatus
-
-      $sguil_ssnDetailTable columnconfigure 0 -name view -editable yes -width 0 -editwindow checkbutton -formatcommand emptyStr
-      $sguil_ssnDetailTable columnconfigure 1 -name field -resizable 1
-      $sguil_ssnDetailTable columnconfigure 2 -name value -resizable 1 -wrap 1
-
-      scrollbar $sguil_ssnDetailScroll -orient vertical -width 10 -command [list $sguil_ssnDetailTable yview]
-      pack $sguil_ssnDetailTable -side left -fill both -expand true
-      pack $sguil_ssnDetailScroll -side right -fill y
-
-      pack $sguil_ssnDetailFrame -side top -fill both -expand true
-
-    #
     # Detail for generic events
     #
     set genericFrame [frame $detailDataFrame.genericFrame]
       set genericDisplayButton [checkbutton $genericFrame.genericButton -variable DISPLAY_GENERIC \
         -command DisplayGenericDetail -text "Display Detail"]
-      set genericText [scrolledhtml $genericFrame.genericText \
-        -relief flat \
-        -hscrollmode none \
-        -visibleitems 10x2 \
-        -sbwidth 10 \
-        -vscrollmode dynamic \
-        -update 0 \
-        -linkcommand OpenHREF \
-      ]
+      set genericText [scrolledtext $genericFrame.genericText -hscrollmode none -visibleitems 10x2\
+       -sbwidth 10 -vscrollmode dynamic -wrap word]
       pack $genericDisplayButton -side top 
       pack $genericText -side bottom -fill both -expand true
       pack $padsBannerFrame -side bottom -fill both -expand true
@@ -2888,39 +2778,39 @@ set detailDataFrame [frame [$detailPane childsite 1].packetDataFrame]
     set tcpHdrFrame [frame $packetFrame.tcpHdrFrame -background black -borderwidth 1]
       set tcpHdrLabel [label $tcpHdrFrame.tcpHdrLabel -text TCP -width 8 -foreground white -background blue]
       set sPortTcpHdrFrame [frame $tcpHdrFrame.sPortTcpHdrFrame]
-        LabelText $sPortTcpHdrFrame 5 "SPort" 1
+        LabelText $sPortTcpHdrFrame 5 "Source\nPort" 3
       set dPortTcpHdrFrame [frame $tcpHdrFrame.dPortTcpHdrFrame]
-        LabelText $dPortTcpHdrFrame 5 "DPort" 1
+        LabelText $dPortTcpHdrFrame 5 "Dest\nPort" 3
       set r1TcpHdrFrame [frame $tcpHdrFrame.r1TcpHdrFrame]
-        LabelText $r1TcpHdrFrame 1 "1" 1
+        LabelText $r1TcpHdrFrame 1 "R\n1" 3
       set r0TcpHdrFrame [frame $tcpHdrFrame.r0TcpHdrFrame]
-        LabelText $r0TcpHdrFrame 1 "0" 1
+        LabelText $r0TcpHdrFrame 1 "R\n0" 3
       set urgTcpHdrFrame [frame $tcpHdrFrame.urgTcpHdrFrame]
-        LabelText $urgTcpHdrFrame 1 "U" 1
+        LabelText $urgTcpHdrFrame 1 "U\nR\nG" 3
       set ackTcpHdrFrame [frame $tcpHdrFrame.ackTcpHdrFrame]
-        LabelText $ackTcpHdrFrame 1 "A" 1
+        LabelText $ackTcpHdrFrame 1 "A\nC\nK" 3
       set pshTcpHdrFrame [frame $tcpHdrFrame.pshTcpHdrFrame]
-        LabelText $pshTcpHdrFrame 1 "P" 1
+        LabelText $pshTcpHdrFrame 1 "P\nS\nH" 3
       set rstTcpHdrFrame [frame $tcpHdrFrame.rstTcpHdrFrame]
-        LabelText $rstTcpHdrFrame 1 "R" 1
+        LabelText $rstTcpHdrFrame 1 "R\nS\nT" 3
       set synTcpHdrFrame [frame $tcpHdrFrame.synTcpHdrFrame]
-        LabelText $synTcpHdrFrame 1 "S" 1
+        LabelText $synTcpHdrFrame 1 "S\nY\nN" 3
       set finTcpHdrFrame [frame $tcpHdrFrame.finTcpHdrFrame]
-        LabelText $finTcpHdrFrame 1 "F" 1
+        LabelText $finTcpHdrFrame 1 "F\nI\nN" 3
       set seqTcpHdrFrame [frame $tcpHdrFrame.seqTcpHdrFrame]
-        LabelText $seqTcpHdrFrame 10 "Seq #" 1
+        LabelText $seqTcpHdrFrame 10 "Seq #" 3
       set acknoTcpHdrFrame [frame $tcpHdrFrame.acknoTcpHdrFrame]
-        LabelText $acknoTcpHdrFrame 10 "Ack #" 1
+        LabelText $acknoTcpHdrFrame 10 "Ack #" 3
       set tcpoffsetTcpHdrFrame [frame $tcpHdrFrame.tcpoffsetTcpHdrFrame]
-        LabelText $tcpoffsetTcpHdrFrame 5 "Offset" 1
+        LabelText $tcpoffsetTcpHdrFrame 5 "Offset" 3
       set resTcpHdrFrame [frame $tcpHdrFrame.resTcpHdrFrame]
-        LabelText $resTcpHdrFrame 3 "Res" 1
+        LabelText $resTcpHdrFrame 3 "Res" 3
       set windowTcpHdrFrame [frame $tcpHdrFrame.windowTcpHdrFrame]
-        LabelText $windowTcpHdrFrame 6 "Window" 1
+        LabelText $windowTcpHdrFrame 6 "Window" 3
       set urpTcpHdrFrame [frame $tcpHdrFrame.urpTcpHdrFrame]
-        LabelText $urpTcpHdrFrame 3 "Urp" 1
+        LabelText $urpTcpHdrFrame 3 "Urp" 3
       set tcpchksumTcpHdrFrame [frame $tcpHdrFrame.tcpchksumTcpHdrFrame]
-        LabelText $tcpchksumTcpHdrFrame 6 "ChkSum" 1
+        LabelText $tcpchksumTcpHdrFrame 6 "ChkSum" 3
       pack $tcpHdrLabel -side left -anchor w -fill y
       pack $sPortTcpHdrFrame $dPortTcpHdrFrame $r1TcpHdrFrame $r0TcpHdrFrame $urgTcpHdrFrame\
        $ackTcpHdrFrame $pshTcpHdrFrame $rstTcpHdrFrame $synTcpHdrFrame $finTcpHdrFrame\
@@ -3069,8 +2959,10 @@ $eventIDMenut add command -label "Transcript" -command "GetXscript xscript 0"
 $eventIDMenut add command -label "Transcript (force new)" -command "GetXscript xscript 1"
 $eventIDMenut add command -label "Wireshark" -command "GetXscript wireshark 0"
 $eventIDMenut add command -label "Wireshark (force new)" -command "GetXscript wireshark 1"
-$eventIDMenut add command -label "Custom" -command "GetXscript custom 0"
-$eventIDMenut add command -label "Custom (force new)" -command "GetXscript custom 1"
+$eventIDMenut add command -label "NetworkMiner" -command "GetXscript networkminer 0"
+$eventIDMenut add command -label "NetworkMiner (force new)" -command "GetXscript networkminer 1"
+$eventIDMenut add command -label "Bro" -command "GetBroscript broscript 0"
+$eventIDMenut add command -label "Bro (force new)" -command "GetBroscript broscript 1"
 
 # IPQuery Menu
 set ipQueryMenu [ menu .ipQueryMenu -background $SELECTBACKGROUND -foreground $SELECTFOREGROUND \
@@ -3078,7 +2970,8 @@ set ipQueryMenu [ menu .ipQueryMenu -background $SELECTBACKGROUND -foreground $S
 .ipQueryMenu add cascade -label "Quick Query" -menu $ipQueryMenu.quickMenu
 .ipQueryMenu add cascade -label "Advanced Query" -menu $ipQueryMenu.advancedMenu
 .ipQueryMenu add cascade -label "Dshield IP Lookup" -menu $ipQueryMenu.dshieldIPMenu
-.ipQueryMenu add cascade -label "ElasticSearch" -menu $ipQueryMenu.esMenu
+.ipQueryMenu add cascade -label "Copy IP Address" -menu $ipQueryMenu.copyIPMenu
+.ipQueryMenu add cascade -label "ELSA IP Lookup" -menu $ipQueryMenu.elsaIPMenu
 
 menu $ipQueryMenu.quickMenu -tearoff 0 -background $SELECTBACKGROUND -foreground $SELECTFOREGROUND \
 -activeforeground $SELECTBACKGROUND -activebackground $SELECTFOREGROUND
@@ -3086,7 +2979,9 @@ menu $ipQueryMenu.advancedMenu -tearoff 0 -background $SELECTBACKGROUND -foregro
 -activeforeground $SELECTBACKGROUND -activebackground $SELECTFOREGROUND
 menu $ipQueryMenu.dshieldIPMenu -tearoff 0 -background $SELECTBACKGROUND -foreground $SELECTFOREGROUND \
 -activeforeground $SELECTBACKGROUND -activebackground $SELECTFOREGROUND
-menu $ipQueryMenu.esMenu -tearoff 0 -background $SELECTBACKGROUND -foreground $SELECTFOREGROUND \
+menu $ipQueryMenu.copyIPMenu -tearoff 0 -background $SELECTBACKGROUND -foreground $SELECTFOREGROUND \
+-activeforeground $SELECTBACKGROUND -activebackground $SELECTFOREGROUND
+menu $ipQueryMenu.elsaIPMenu -tearoff 0 -background $SELECTBACKGROUND -foreground $SELECTFOREGROUND \
 -activeforeground $SELECTBACKGROUND -activebackground $SELECTFOREGROUND
 
 foreach { currentMenu subcommand } { .ipQueryMenu.quickMenu "quick" .ipQueryMenu.advancedMenu "build" } {
@@ -3122,27 +3017,11 @@ $ipQueryMenu.advancedMenu.padsMenu add command -label "Query Dst IP" -command "Q
 $ipQueryMenu.dshieldIPMenu add command -label "SrcIP" -command "GetDshieldIP srcip"
 $ipQueryMenu.dshieldIPMenu add command -label "DstIP" -command "GetDshieldIP dstip"
 
-$ipQueryMenu.esMenu add cascade -label "Sguil_httplog" -menu $ipQueryMenu.esMenu.httpLogMenu
-menu $ipQueryMenu.esMenu.httpLogMenu -tearoff 0 -background $SELECTBACKGROUND -foreground $SELECTFOREGROUND \
-    -activeforeground $SELECTBACKGROUND -activebackground $SELECTFOREGROUND
+$ipQueryMenu.copyIPMenu add command -label "SrcIP" -command "CopyIP srcip"
+$ipQueryMenu.copyIPMenu add command -label "DstIP" -command "CopyIP dstip"
 
-$ipQueryMenu.esMenu add cascade -label "Sguil_ssn" -menu $ipQueryMenu.esMenu.ssnMenu
-menu $ipQueryMenu.esMenu.ssnMenu -tearoff 0 -background $SELECTBACKGROUND -foreground $SELECTFOREGROUND \
-    -activeforeground $SELECTBACKGROUND -activebackground $SELECTFOREGROUND
-
-$ipQueryMenu.esMenu.httpLogMenu add command -label "SrcIP" -command "ESQueryRequest Sguil_httplog srcip"
-#$ipQueryMenu.esMenu.httpLogMenu add command -label "SrcIP" -command "ESQueryRequest Sguil_httplog srcip {1 hour ago} now"
-$ipQueryMenu.esMenu.httpLogMenu add command -label "DstIP" -command "ESQueryRequest Sguil_httplog dstip"
-#$ipQueryMenu.esMenu.httpLogMenu add command -label "DstIP" -command "ESQueryRequest Sguil_httplog dstip {1 hour ago} now"
-$ipQueryMenu.esMenu.httpLogMenu add command -label "SrcIP to DstIP" -command "ESQueryRequest Sguil_httplog src2dst"
-#$ipQueryMenu.esMenu.httpLogMenu add command -label "SrcIP to DstIP" -command "ESQueryRequest Sguil_httplog src2dst {1 hour ago} now"
-
-$ipQueryMenu.esMenu.ssnMenu add command -label "SrcIP" -command "ESQueryRequest Sguil_ssn srcip"
-#$ipQueryMenu.esMenu.ssnMenu add command -label "SrcIP" -command "ESQueryRequest Sguil_ssn srcip {1 hour ago} now"
-$ipQueryMenu.esMenu.ssnMenu add command -label "DstIP" -command "ESQueryRequest Sguil_ssn dstip"
-#$ipQueryMenu.esMenu.ssnMenu add command -label "DstIP" -command "ESQueryRequest Sguil_ssn dstip {1 hour ago} now"
-$ipQueryMenu.esMenu.ssnMenu add command -label "SrcIP to DstIP" -command "ESQueryRequest Sguil_ssn src2dst"
-#$ipQueryMenu.esMenu.ssnMenu add command -label "SrcIP to DstIP" -command "ESQueryRequest Sguil_ssn src2dst {1 hour ago} now"
+$ipQueryMenu.elsaIPMenu add command -label "SrcIP" -command "GetELSAIP srcip"
+$ipQueryMenu.elsaIPMenu add command -label "DstIP" -command "GetELSAIP dstip"
 
 # PADS Menus
 set padsIPQueryMenu [ menu .padsIPQueryMenu -background $SELECTBACKGROUND -foreground $SELECTFOREGROUND \
@@ -3211,46 +3090,157 @@ $statusMenu add cascade -label "Advanced Query" -menu $statusMenu.advancedQueryM
 foreach { currentMenu subcommand } { .statusMenu.quickQueryMenu quick .statusMenu.advancedQueryMenu build } {
     menu $currentMenu -background $SELECTBACKGROUND -foreground $SELECTFOREGROUND \
 	-activeforeground $SELECTBACKGROUND -activebackground $SELECTFOREGROUND -tearoff 0 
-
-      foreach v [lsort [array names CAT]] {
-
-          set d [lindex $CAT($v) 0]
-
-          $currentMenu add command -label $d -command "QueryRequest event category $v $subcommand"
-
-      }
-
+    $currentMenu add command -label "Cat I: Unauthorized Root Access"\
+	-command "QueryRequest event category 11 $subcommand"
+    $currentMenu add command -label "Cat II: Unauthorized User Access"\
+	-command "QueryRequest event category 12 $subcommand"
+    $currentMenu add command -label "Cat III: Attempted Unauthorized Access"\
+	-command "QueryRequest event category 13 $subcommand"
+    $currentMenu add command -label "Cat IV: Successful Denial of Service Attack"\
+	-command "QueryRequest event category 14 $subcommand"
+    $currentMenu add command -label "Cat V: Poor Security Practice or Policy Violation"\
+	-command "QueryRequest event category 15 $subcommand"
+    $currentMenu add command -label "Cat VI: Reconnaissance/Probes/Scans"\
+	-command "QueryRequest event category 16 $subcommand"
+    $currentMenu add command -label "Cat VII: Virus Infection"\
+	-command "QueryRequest event category 17 $subcommand"
 }
 
 $statusMenu add cascade -label "Update Event Status" -menu $statusMenu.validateMenu
 set validateMenu [menu $statusMenu.validateMenu -background $SELECTBACKGROUND -foreground $SELECTFOREGROUND \
  -activeforeground $SELECTBACKGROUND -activebackground $SELECTFOREGROUND -tearoff 0 ]
+$validateMenu add command -label "Escalate (F9)" -command "ValidateEvent 2"
+$validateMenu add command -label "Cat I: Unauthorized Root Access (F1)"\
+  -command "ValidateEvent 11"
+$validateMenu add command -label "Cat I: Add Comment"\
+  -command "ValidateEvent 11 1"
+$validateMenu add command -label "Cat II: Unauthorized User Access (F2)"\
+  -command "ValidateEvent 12"
+$validateMenu add command -label "Cat II: Add Comment"\
+  -command "ValidateEvent 12 1"
+$validateMenu add command -label "Cat III: Attempted Unauthorized Access (F3)"\
+  -command "ValidateEvent 13"
+$validateMenu add command -label "Cat III: Add Comment"\
+  -command "ValidateEvent 13 1"
+$validateMenu add command -label "Cat IV: Successful Denial of Service Attack (F4)"\
+  -command "ValidateEvent 14"
+$validateMenu add command -label "Cat IV: Add Comment"\
+  -command "ValidateEvent 14 1"
+$validateMenu add command -label "Cat V: Poor Security Practice or Policy Violation (F5)"\
+  -command "ValidateEvent 15"
+$validateMenu add command -label "Cat V: Add Comment"\
+  -command "ValidateEvent 15 1"
+$validateMenu add command -label "Cat VI: Reconnaissance/Probes/Scans (F6)"\
+  -command "ValidateEvent 16"
+$validateMenu add command -label "Cat VI: Add Comment"\
+  -command "ValidateEvent 16 1"
+$validateMenu add command -label "Cat VII: Virus Infection(F7)"\
+  -command "ValidateEvent 17"
+$validateMenu add command -label "Cat VII: Add Comment"\
+  -command "ValidateEvent 17 1"
 
-foreach v [lsort [array names CAT]] {
-
-    set d [lindex $CAT($v) 0]
-    set k [lindex $CAT($v) 3]
-
-    $validateMenu add command -label "$d ($k)" -command "ValidateEvent $v"
-    $validateMenu add command -label "$d w/comment (Shift-$k)" -command "ValidateEvent $v 1"
-
-}
 
 ################### GENERAL KEY BINDINGS ########################
 
-# Bind classification keys from sguil.conf
-foreach v [array names CAT] {
-
-    set k [lindex $CAT($v) 3]
-
-    # No Comment
-    bind . <$k> [list ValidateEvent $v]
-
-    # With Comment
-    bind . <Shift-Key-$k> [list ValidateEvent $v 1]
-
+# F8 deletes the highlighted event
+bind . <F8> {
+    global BUSY
+    if { $BUSY } { bell; break }
+  ValidateEvent 1
 }
-
+bind . <Shift-Key-F8> {
+    global BUSY
+    if { $BUSY } { bell; break }
+  ValidateEvent 1 1
+}
+# F1 deletes the highlighted event and marks the event as 11 (CatI)
+bind . <F1> {
+    global BUSY
+    if { $BUSY } { bell; break }
+  ValidateEvent 11
+}
+bind . <Shift-Key-F1> {
+    global BUSY
+    if { $BUSY } { bell; break }
+  ValidateEvent 11 1
+}
+# F2 deletes the highlighted event and marks the event as 12 (CatII)
+bind . <F2> {
+    global BUSY
+    if { $BUSY } { bell; break }
+  ValidateEvent 12
+}
+bind . <Shift-Key-F2> {
+    global BUSY
+    if { $BUSY } { bell; break }
+  ValidateEvent 12 1
+}
+# F3 deletes the highlighted event and marks the event as 13 (CatIII)
+bind . <F3> {
+    global BUSY
+    if { $BUSY } { bell; break }
+  ValidateEvent 13
+}
+bind . <Shift-Key-F3> {
+    global BUSY
+    if { $BUSY } { bell; break }
+  ValidateEvent 13 1
+}
+# F4 deletes the highlighted event and marks the event as 14 (CatIV)
+bind . <F4> {
+    global BUSY
+    if { $BUSY } { bell; break }
+  ValidateEvent 14
+}
+bind . <Shift-Key-F4> {
+    global BUSY
+    if { $BUSY } { bell; break }
+  ValidateEvent 14 1
+}
+# F5 deletes the highlighted event and marks the event as 15 (CatV)
+bind . <F5> {
+    global BUSY
+    if { $BUSY } { bell; break }
+  ValidateEvent 15
+}
+bind . <Shift-Key-F5> {
+    global BUSY
+    if { $BUSY } { bell; break }
+  ValidateEvent 15 1
+}
+# F6 deletes the highlighted event and marks the event as 16 (CatVI)
+bind . <F6> {
+    global BUSY
+    if { $BUSY } { bell; break }
+  ValidateEvent 16
+}
+bind . <Shift-Key-F6> {
+    global BUSY
+    if { $BUSY } { bell; break }
+  ValidateEvent 16 1
+}
+# F7 deletes the highlighted event and marks the event as 17 (CatVII)
+bind . <F7> {
+    global BUSY
+    if { $BUSY } { bell; break }
+  ValidateEvent 17
+}
+bind . <Shift-Key-F7> {
+    global BUSY
+    if { $BUSY } { bell; break }
+  ValidateEvent 17 1
+}
+# F9 Escalates the event
+bind . <F9> {
+    global BUSY
+    if { $BUSY } { bell; break }
+  ValidateEvent 2
+}
+bind . <Shift-Key-F9> {
+    global BUSY
+    if { $BUSY } { bell; break }
+  ValidateEvent 2 1
+}
 # Ctl-s initiates Sleep function.
 bind . <Control-Key-s> {
   GoToSleep
