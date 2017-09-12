@@ -116,7 +116,7 @@ proc RestEvents { detail } {
 	    puts $fileID $OutputText
 	    close $fileID
 	}
-        if { [catch {exec python phantom_sguil_post.py $filename} saveError] } {
+        if { [catch {exec python sguil_post.py $filename} saveError] } {
      	    tk_messageBox -type ok -icon warning -parent $winname -message $saveError
    	}
   	InfoMessage "Raw file is stored in $filename. Please delete when finished"
