@@ -1011,7 +1011,7 @@ proc Phantom { win } {
   if { [catch {$win.sText export $saveFile} saveError] } {
      tk_messageBox -type ok -icon warning -parent $win -message $saveError
    }
-  if { [catch {exec python phantom_saveas_post.py $saveFile} saveError] } {
+  if { [catch {exec python saveas_post.py $saveFile} saveError] } {
      tk_messageBox -type ok -icon warning -parent $win -message $saveError
    }
   InfoMessage "Raw file is stored in $saveFile. Please delete when finished"
