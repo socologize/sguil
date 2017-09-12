@@ -25,9 +25,9 @@ proc GetRuleInfo {} {
         set event_id [$CUR_SEL_PANE(name) getcells $selectedIndex,alertID]
         set genID $generatorListMap($event_id)
 
-        if { $genID != "1" } {
+	if { $genID != "1" && $genID != "3" } {
 
-            # For the detection engine only. Generator ID 1.
+            # For the detection engine only. Generator ID 1 and 3 (SO).
             ClearRuleText
             InsertRuleData "Rules and signatures are not available for the generator ID ${genID}."
             return
@@ -151,7 +151,7 @@ proc DisplayReference { win start length } {
  
      switch -exact -- $type {
 
-        url        { exec $BROWSER_PATH $content & }
+        url        { exec $BROWSER_PATH http://$content & }
         bugtraq    { exec $BROWSER_PATH http://www.securityfocus.com/bid/$content & }
         cve        { exec $BROWSER_PATH http://nvd.nist.gov/nvd.cfm?cvename=CAN-$content & }
         nessus     { exec $BROWSER_PATH http://cgi.nessus.org/plugins/dump.php3?id=$content & }
@@ -168,6 +168,60 @@ proc DisplayReference { win start length } {
                      if { !$f } { InfoMessage "Unable to find url for sid $content. Check your sguil.conf." } 
         }
         default    { InfoMessage "Unknown reference in rule: $ref" }
+
+    }
+
+}
+
+proc CopyIP { arg } {
+
+    global DEBUG BROWSER_PATH CUR_SEL_PANE ACTIVE_EVENT MULTI_SELECT
+
+    if { $ACTIVE_EVENT && !$MULTI_SELECT} {
+
+        set selectedIndex [$CUR_SEL_PANE(name) curselection]
+
+        if { $arg == "srcip" } {
+            set ipAddr [$CUR_SEL_PANE(name) getcells $selectedIndex,srcip]
+        } else {
+            set ipAddr [$CUR_SEL_PANE(name) getcells $selectedIndex,dstip]
+        }
+
+        # Copy to clipboard
+	clipboard clear
+	clipboard append $ipAddr
+
+    }
+
+}
+
+proc GetELSAIP { arg } {
+
+    global DEBUG BROWSER_PATH CUR_SEL_PANE ACTIVE_EVENT MULTI_SELECT SERVERHOSTSELECTED
+
+    if { $ACTIVE_EVENT && !$MULTI_SELECT} {
+
+        set selectedIndex [$CUR_SEL_PANE(name) curselection]
+
+        if { $arg == "srcip" } {
+            set ipAddr [$CUR_SEL_PANE(name) getcells $selectedIndex,srcip]
+        } else {
+            set ipAddr [$CUR_SEL_PANE(name) getcells $selectedIndex,dstip]
+        }
+
+        if {[file exists $BROWSER_PATH] && [file executable $BROWSER_PATH]} {
+
+            # Launch browser
+            exec $BROWSER_PATH https://$SERVERHOSTSELECTED/elsa-query/?query_string="$ipAddr"%20groupby:program &
+
+        } else {
+
+            tk_messageBox -type ok -icon warning -message\
+             "$BROWSER_PATH does not exist or is not executable. Please update the BROWSER_PATH variable\
+              to point your favorite browser."
+            puts "Error: $BROWSER_PATH does not exist or is not executable."
+
+        }
 
     }
 
@@ -257,14 +311,6 @@ proc ResolveHosts {} {
             set name [GetHostbyAddr $ip]
             InsertDNSData $ip $name $ip $name
 
-        } elseif { $CUR_SEL_PANE(type) == "SGUIL_HTTP" || $CUR_SEL_PANE(type) == "SGUIL_SSN" } {
-
-            set srcIP [$CUR_SEL_PANE(name) getcells $selectedIndex,src_ip]
-            set dstIP [$CUR_SEL_PANE(name) getcells $selectedIndex,dst_ip]
-            set srcName [GetHostbyAddr $srcIP]
-            set dstName [GetHostbyAddr $dstIP]
-            InsertDNSData $srcIP $srcName $dstIP $dstName
-
         } else {
 
             set srcIP [$CUR_SEL_PANE(name) getcells $selectedIndex,srcip]
@@ -298,18 +344,6 @@ proc GetWhoisData {} {
         if { $CUR_SEL_PANE(type) == "PADS" } { 
 
             set ip [$CUR_SEL_PANE(name) getcells $selectedIndex,ip]
-
-        } elseif { $CUR_SEL_PANE(type) == "SGUIL_HTTP" || $CUR_SEL_PANE(type) == "SGUIL_SSN" } { 
-      
-            if { $WHOISLIST == "srcip" } { 
-
-                set ip [$CUR_SEL_PANE(name) getcells $selectedIndex,src_ip]
-
-            } else {
-
-                set ip [$CUR_SEL_PANE(name) getcells $selectedIndex,dst_ip]
-
-            }
 
         } else {
 
@@ -481,9 +515,9 @@ proc GetHostbyAddr { ip } {
     }
 
     # Wait for the request to finish
-    catch {dns::wait $tok}
+    dns::wait $tok
 
-    if [catch {dns::name $tok} hostname] { set hostname "Unknown" }
+    set hostname [dns::name $tok]
     dns::cleanup $tok
     if { $hostname == "" } { set hostname "Unknown" }
     return $hostname
@@ -539,46 +573,30 @@ proc ClearWhoisData {} {
 }
 
 proc CreateXscriptWin { winName } {
-
     toplevel $winName
-
-    # Text box for xscript contents
+    menubutton $winName.menubutton -underline 0 -text File -menu $winName.menubutton.menu
+    menu $winName.menubutton.menu -tearoff 0
+    $winName.menubutton.menu add command -label "Save As" -command "SaveXscript $winName"
+    $winName.menubutton.menu add command -label "Send to Phantom" -command "Phantom $winName"
+    $winName.menubutton.menu add command -label "Close Window" -command "destroy $winName"
     scrolledtext $winName.sText -vscrollmode dynamic -hscrollmode dynamic -wrap word\
 	    -visibleitems 85x30 -sbwidth 10
     $winName.sText tag configure hdrTag -foreground black -background "#00FFFF"
     $winName.sText tag configure srcTag -foreground blue
     $winName.sText tag configure dstTag -foreground red
     
-    # Text box for debug
-    # Hide the ST in a frame to easily pack/unpack
-    set df [frame $winName.df]
-    scrolledtext $df.debug -vscrollmode dynamic -hscrollmode none -wrap word\
-    -visibleitems 85x5 -sbwidth 10 -labeltext "Debug Messages" -textbackground lightblue
-
-    # Interaction buttons
-    set termButtonFrame [frame $winName.termButtonsFrame]
+  scrolledtext $winName.debug -vscrollmode dynamic -hscrollmode none -wrap word\
+   -visibleitems 85x5 -sbwidth 10 -labeltext "Debug Messages" -textbackground lightblue
+  set termButtonFrame [frame $winName.termButtonsFrame]
     button $termButtonFrame.searchButton -text "Search" -command "SearchDialog $winName" 
     button $termButtonFrame.abortButton -text "Abort " -command "AbortXscript $winName" 
     button $termButtonFrame.closeButton -text "Close" -command "CleanupXscriptWin $winName"
     pack $termButtonFrame.searchButton $termButtonFrame.abortButton $termButtonFrame.closeButton \
      -side left -padx 0 -expand true
-
-    # Top Menu - Build the items so we can hide/unhide debug
-    menubutton $winName.menubutton -underline 0 -text File -menu $winName.menubutton.menu
-    menu $winName.menubutton.menu -tearoff 0
-    $winName.menubutton.menu add command -label "Show Debug" -command "pack $df.debug"
-    $winName.menubutton.menu add command -label "Save As" -command "SaveXscript $winName"
-    $winName.menubutton.menu add command -label "Close Window" -command "destroy $winName"
-
-    # Pack the windows from the top: Menu, Xscript Text, Debug, Buttons
-    pack $winName.menubutton -side top -anchor w
-    pack $winName.sText \
-     -side top -fill both -expand true
-    pack $df $termButtonFrame \
-     -side top -fill both -expand false
-
+  pack $winName.menubutton -side top -anchor w
+  pack $winName.sText $termButtonFrame $winName.debug \
+   -side top -fill both -expand true
 }
-
 proc AbortXscript { winName } {
   $winName.termButtonsFrame.abortButton configure -state disabled
   SendToSguild [list AbortXscript $winName]
@@ -648,20 +666,20 @@ proc InsertXscriptData { winName state data } {
       ErrorMessage "$data"
     }
   } else {
-    $winName.df.debug component text insert end "$data\n"
-    $winName.df.debug see end
+    $winName.debug component text insert end "$data\n"
+    $winName.debug see end
   } 
 }
 proc XscriptDebugMsg { winName data } {
     if [winfo exists $winName] {
-      $winName.df.debug component text insert end "$data\n"
-      $winName.df.debug see end
+      $winName.debug component text insert end "$data\n"
+      $winName.debug see end
     }
 }
 
 proc PcapAvailable { socketID sKey fileName } {
 
-    global WIRESHARK_STORE_DIR WIRESHARK_PATH
+    global WIRESHARK_STORE_DIR WIRESHARK_PATH WIRESHARK_OPTIONS
 
     # Windows doesn't like colons
     regsub -all {:} [file tail $fileName] {_} fileName
@@ -701,7 +719,7 @@ proc PcapAvailable { socketID sKey fileName } {
 
 proc PcapCopyFinished { fileName outfileID dataSocketID bytes {error {}} } {
 
-    global WIRESHARK_PATH
+    global WIRESHARK_PATH WIRESHARK_OPTIONS
 
     # Data copy finished
     catch {close $outfileID}
@@ -714,7 +732,7 @@ proc PcapCopyFinished { fileName outfileID dataSocketID bytes {error {}} } {
     }
 
     
-    eval exec $WIRESHARK_PATH -n -r $fileName &
+    eval exec $WIRESHARK_PATH $WIRESHARK_OPTIONS $fileName &
 
     InfoMessage\
      "Raw file is stored in $fileName. Please delete when finished"
@@ -722,20 +740,20 @@ proc PcapCopyFinished { fileName outfileID dataSocketID bytes {error {}} } {
 }
 
 proc WiresharkDataPcap { socketID fileName bytes } {
-  global WIRESHARK_STORE_DIR WIRESHARK_PATH
+  global WIRESHARK_STORE_DIR WIRESHARK_PATH WIRESHARK_OPTIONS
   set outFileID [open $WIRESHARK_STORE_DIR/$fileName w]
   fconfigure $outFileID -translation binary
   fconfigure $socketID -translation binary
   fcopy $socketID $outFileID -size $bytes
   close $outFileID
   fconfigure $socketID -encoding utf-8 -translation {auto crlf}
-  eval exec $WIRESHARK_PATH -n -r $WIRESHARK_STORE_DIR/$fileName &
+  eval exec $WIRESHARK_PATH $WIRESHARK_OPTIONS $WIRESHARK_STORE_DIR/$fileName &
   InfoMessage\
    "Raw file is stored in $WIRESHARK_STORE_DIR/$fileName. Please delete when finished"
 }
 # Archiving this till I know for sure binary xfers are working correctly
 proc WiresharkDataBase64 { fileName data } {
-  global WIRESHARK_PATH WIRESHARK_STORE_DIR b64FileID DEBUG
+  global WIRESHARK_PATH WIRESHARK_OPTIONS WIRESHARK_STORE_DIR b64FileID DEBUG
   if { $data == "BEGIN" } {
     set tmpFileName $WIRESHARK_STORE_DIR/${fileName}.base64
     set b64FileID($fileName) [open $tmpFileName w]
@@ -750,7 +768,8 @@ proc WiresharkDataBase64 { fileName data } {
       close $outFileID
       close $inFileID
       file delete $WIRESHARK_STORE_DIR/${fileName}.base64
-      eval exec $WIRESHARK_PATH -n -r $WIRESHARK_STORE_DIR/$fileName &
+
+      eval exec $WIRESHARK_PATH $WIRESHARK_OPTIONS $WIRESHARK_STORE_DIR/$fileName &
       InfoMessage "Raw file is stored in $WIRESHARK_STORE_DIR/$fileName. Please delete when finished"
     }
   } else {
@@ -763,57 +782,19 @@ proc WiresharkDataBase64 { fileName data } {
 proc GetXscript { type force } {
 
     global ACTIVE_EVENT SERVERHOST XSCRIPT_SERVER_PORT DEBUG CUR_SEL_PANE XSCRIPTDATARCVD
-    global socketWinName SESSION_STATE WIRESHARK_STORE_DIR WIRESHARK_PATH
+    global socketWinName SESSION_STATE WIRESHARK_STORE_DIR WIRESHARK_PATH WIRESHARK_OPTIONS
 
     if {!$ACTIVE_EVENT} {return}
 
     set selectedIndex [$CUR_SEL_PANE(name) curselection]
-  
-    if { $CUR_SEL_PANE(format) == "SGUIL_HTTP" || $CUR_SEL_PANE(format) == "SGUIL_SSN"} {
-
-        set sensorID [$CUR_SEL_PANE(name) getcells $selectedIndex,net_name]
-        set cnxID [$CUR_SEL_PANE(name) getcells $selectedIndex,_id]
-        set sensor [$CUR_SEL_PANE(name) getcells $selectedIndex,host]
-        set srcIP [$CUR_SEL_PANE(name) getcells $selectedIndex,src_ip]
-        set srcPort [$CUR_SEL_PANE(name) getcells $selectedIndex,src_port]
-        set dstIP [$CUR_SEL_PANE(name) getcells $selectedIndex,dst_ip]
-        set dstPort [$CUR_SEL_PANE(name) getcells $selectedIndex,dst_port]
-       
-        if { $CUR_SEL_PANE(format) == "SGUIL_HTTP" } {
-
-            set proto 6
-
-        } else {
-
-            set proto [$CUR_SEL_PANE(name) getcells $selectedIndex,ip_proto]
-
-        }
-
-    } else {
-
-        set sidcidList [split [$CUR_SEL_PANE(name) getcells $selectedIndex,alertID] .]
-        set proto [$CUR_SEL_PANE(name) getcells $selectedIndex,ipproto]
-        set cnxID [lindex $sidcidList 1]
-        set sensorID [lindex $sidcidList 0]
-        set sensor [$CUR_SEL_PANE(name) getcells $selectedIndex,sensor]
-        set srcIP [$CUR_SEL_PANE(name) getcells $selectedIndex,srcip]
-        set srcPort [$CUR_SEL_PANE(name) getcells $selectedIndex,srcport]
-        set dstIP [$CUR_SEL_PANE(name) getcells $selectedIndex,dstip]
-        set dstPort [$CUR_SEL_PANE(name) getcells $selectedIndex,dstport]
-
-    }
+    set sidcidList [split [$CUR_SEL_PANE(name) getcells $selectedIndex,alertID] .]
+    set cnxID [lindex $sidcidList 1]
+    set sensorID [lindex $sidcidList 0]
+    set proto [$CUR_SEL_PANE(name) getcells $selectedIndex,ipproto]
 
     if { $CUR_SEL_PANE(format) == "SSN" } {
 
         set timestamp [$CUR_SEL_PANE(name) getcells $selectedIndex,starttime]
-
-    } elseif { $CUR_SEL_PANE(format) == "SGUIL_HTTP" } {
-
-        set timestamp [$CUR_SEL_PANE(name) getcells $selectedIndex,@timestamp]
-
-    } elseif { $CUR_SEL_PANE(format) == "SGUIL_SSN" } {
-
-        set timestamp [$CUR_SEL_PANE(name) getcells $selectedIndex,start_time]
 
     } else {
 
@@ -829,9 +810,13 @@ proc GetXscript { type force } {
 
     }
 
+    set sensor [$CUR_SEL_PANE(name) getcells $selectedIndex,sensor]
+    set srcIP [$CUR_SEL_PANE(name) getcells $selectedIndex,srcip]
+    set srcPort [$CUR_SEL_PANE(name) getcells $selectedIndex,srcport]
+    set dstIP [$CUR_SEL_PANE(name) getcells $selectedIndex,dstip]
+    set dstPort [$CUR_SEL_PANE(name) getcells $selectedIndex,dstport]
 
-    regsub -all {\.} $sensor {_} safesensor
-    set xscriptWinName ".[string tolower ${safesensor}]_${cnxID}"
+    set xscriptWinName ".[string tolower ${sensor}]_${cnxID}"
 
     if { $type == "xscript"} {
 
@@ -863,7 +848,11 @@ proc GetXscript { type force } {
     } elseif { $type == "wireshark" } {
 
         # If WIRESHARK_PATH isn't set use the default location /usr/sbin/wireshark
-        if { ![info exists WIRESHARK_PATH] } { set WIRESHARK_PATH /usr/sbin/wireshark }
+        #if { ![info exists WIRESHARK_PATH] } { set WIRESHARK_PATH /usr/sbin/wireshark }
+
+	# Added by Doug
+	set WIRESHARK_PATH /usr/bin/wireshark
+	set WIRESHARK_OPTIONS "-n -r"
 
         # Make sure the file exists and is executable.
         if { ![file exists $WIRESHARK_PATH] || ![file executable $WIRESHARK_PATH] } {
@@ -881,12 +870,95 @@ proc GetXscript { type force } {
 
         SendToSguild [list WiresharkRequest $sensor $sensorID $timestamp $srcIP $srcPort $dstIP $dstPort $proto $force]
 
+    # Added by Doug
+    } elseif { $type == "networkminer" } {
+
+        set WIRESHARK_PATH /opt/networkminer/networkminer
+	set WIRESHARK_OPTIONS ""
+
+        # Make sure the file exists and is executable.
+        if { ![file exists $WIRESHARK_PATH] || ![file executable $WIRESHARK_PATH] } {
+
+            tk_messageBox -type ok -icon warning -message \
+             "Unable to find NetworkMiner to process this request. Looked in $WIRESHARK_PATH."
+            return
+
+        }
+
+        if {$DEBUG} {
+            puts "Wireshark Request sent: [list $sensor $sensorID $timestamp $srcIP $srcPort $dstIP $dstPort $proto $force]"
+        }
+
+        SendToSguild [list WiresharkRequest $sensor $sensorID $timestamp $srcIP $srcPort $dstIP $dstPort $proto $force]
+
+    }
+
+}
+
+proc GetBroscript { type force } {
+
+    global ACTIVE_EVENT SERVERHOST XSCRIPT_SERVER_PORT DEBUG CUR_SEL_PANE XSCRIPTDATARCVD
+    global socketWinName SESSION_STATE WIRESHARK_STORE_DIR WIRESHARK_PATH WIRESHARK_OPTIONS
+
+    if {!$ACTIVE_EVENT} {return}
+
+    set selectedIndex [$CUR_SEL_PANE(name) curselection]
+    set sidcidList [split [$CUR_SEL_PANE(name) getcells $selectedIndex,alertID] .]
+    set cnxID [lindex $sidcidList 1]
+    set sensorID [lindex $sidcidList 0]
+
+    if { $CUR_SEL_PANE(format) == "SSN" } {
+        set timestamp [$CUR_SEL_PANE(name) getcells $selectedIndex,starttime]
+    } else {
+        set timestamp [$CUR_SEL_PANE(name) getcells $selectedIndex,date]
+    }
+
+    set sensor [$CUR_SEL_PANE(name) getcells $selectedIndex,sensor]
+    set srcIP [$CUR_SEL_PANE(name) getcells $selectedIndex,srcip]
+    set srcPort [$CUR_SEL_PANE(name) getcells $selectedIndex,srcport]
+    set dstIP [$CUR_SEL_PANE(name) getcells $selectedIndex,dstip]
+    set dstPort [$CUR_SEL_PANE(name) getcells $selectedIndex,dstport]
+    set proto [$CUR_SEL_PANE(name) getcells $selectedIndex,ipproto]
+
+    if { $srcPort == "" || $dstPort == "" } {
+
+        tk_messageBox -type ok -icon warning -message\
+         "Transcripts can only be generated for traffic with src/dst ports."
+        return
+
+    }
+
+    set xscriptWinName ".[string tolower ${sensor}]_${cnxID}"
+    if { $type == "broscript"} {
+        if { ![winfo exists $xscriptWinName] } {
+            CreateXscriptWin $xscriptWinName
+        } else {
+            InfoMessage "This transcipt is already being displayed by you. Please close\
+             that window before you request a new one."
+            # Try and bring the window to the top in case it is hidden.
+            wm withdraw $xscriptWinName
+            wm deiconify $xscriptWinName
+            return
+        }
+        
+        set SESSION_STATE($xscriptWinName) HDR
+        XscriptDebugMsg $xscriptWinName\
+            "Your request has been sent to the server.\nPlease be patient as this can take some time."
+        $xscriptWinName.sText configure -cursor watch
+        set XSCRIPTDATARCVD($xscriptWinName) 0
+
+        SendToSguild [list BroScriptRequest $sensor $sensorID $xscriptWinName $timestamp $srcIP $srcPort $dstIP $dstPort $proto $force]
+ 
+         if {$DEBUG} {
+            puts "Xscript Request sent: [list $sensor $sensorID $xscriptWinName $timestamp $srcIP $srcPort $dstIP $dstPort $force]"
+            puts "Xscript Request sent: [list $sensor $sensorID $xscriptWinName $timestamp $srcIP $srcPort $dstIP $dstPort $proto $force]"
+         }
     }
 
 }
 
 proc CopyDone { socketID tmpFileID tmpFile bytes {error {}} } {
-  global DEBUG WIRESHARK_PATH
+  global DEBUG WIRESHARK_PATH WIRESHARK_OPTIONS
   close $tmpFileID
   close $socketID
   if {$DEBUG} {puts "Bytes Transfered: $bytes"}
@@ -894,7 +966,8 @@ proc CopyDone { socketID tmpFileID tmpFile bytes {error {}} } {
     ErrorMessage "No data available." 
     file delete $tmpFileID
   } else {
-    eval exec $WIRESHARK_PATH -n -r $tmpFile &
+
+    eval exec $WIRESHARK_PATH $WIRESHARK_OPTIONS $tmpFile &
     InfoMessage "Raw file is stored in $tmpFile. Please delete when finished"
   }
 }
@@ -912,6 +985,36 @@ proc SaveXscript { win } {
   if { [catch {$win.sText export $saveFile} saveError] } {
     tk_messageBox -type ok -icon warning -parent $win -message $saveError
   }
+}
+
+proc SendXscript { win } {
+  set initialFile [string trimleft $win .]
+  set saveFile [tk_getSaveFile -parent $win -initialfile $initialFile.txt]
+  if { $saveFile == "" } {
+    tk_messageBox -type ok -icon warning -parent $win -message\
+     "No filename selected. Transcipt was NOT saved."
+    return
+  }
+  if { [catch {$win.sText export $saveFile} saveError] } {
+    tk_messageBox -type ok -icon warning -parent $win -message $saveError
+  }
+}
+
+proc Phantom { win } {
+  set initialFile [string trimleft $win .]
+  set saveFile [tk_getSaveFile -parent $win -initialfile $initialFile.txt]
+  if { $saveFile == "" } {
+    tk_messageBox -type ok -icon warning -parent $win -message\
+    "No filename selected. Transcipt was NOT saved."
+    return
+  }
+  if { [catch {$win.sText export $saveFile} saveError] } {
+     tk_messageBox -type ok -icon warning -parent $win -message $saveError
+   }
+  if { [catch {exec python phantom_saveas_post.py $saveFile} saveError] } {
+     tk_messageBox -type ok -icon warning -parent $win -message $saveError
+   }
+  InfoMessage "Raw file is stored in $saveFile. Please delete when finished"
 }
 
 proc SensorStatusRequest {} {
