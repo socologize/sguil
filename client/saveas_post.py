@@ -1,4 +1,11 @@
-#!/usr/bin/python
+
+#!/usr/bin/env python
+#
+# SaveAs plugin script that pushes REST JSON formatted objects to
+# the Phantom Security Automation and Orchestration platform
+# works for Community version and from 2.1 to 3.x
+#
+# by Rob Gresham @SOCologize / Phantom Cyber with contributions from Tim Frazier
 
 import sys
 import requests
