@@ -45,7 +45,7 @@ if len(sys.argv) == 2:
 		cef["sourceDnsDomain"] = line.split(':')[1].split('(')[1].strip(') \t\n')
             elif "Dst IP" in line:
                 cef["destinationAddress"] = line.split(':')[1].split('(')[0].strip(' \t\n')
-		cef["destinationDnsDomain"] = line.split(':')[1].split('(')[1].strip(') \t\n')
+		cef["destinationHostName"] = line.split(':')[1].split('(')[1].strip(') \t\n')
             elif "Src Port:" in line:
                 cef["sourcePort"] = line.split(':')[1].strip(' \t\n')
             elif "Dst Port" in line:
@@ -60,7 +60,7 @@ if len(sys.argv) == 2:
 		    #print url
 		elif "SRC: Host:" in line:
 	            host = line.split(' ')[2].strip(' \t\n')
-		    cef["destinationHostName"] = line.split(' ')[2].strip(' \t\n')
+		    cef["destinationDnsDomain"] = line.split(' ')[2].strip(' \t\n')
 		    #print host
 		else:
 		    pass
