@@ -38,8 +38,8 @@ if len(sys.argv) == 2:
             elif "Connection ID:" in line:
                 container["source_data_identifier"] = line.split('_')[1].strip('\t\n')
                 artifact["source_data_identifier"] = line.split('_')[1].strip(' \t\n')
-                container["description"] = line.split(':')[1].strip(' \t\n')
-                container["name"] = line.split(':')[1].strip('. \t\n')
+                container["description"] = "IP transcript for " + line.split(':')[1].strip(' \t\n')
+                container["name"] = "Transcript " + line.split(':')[1].strip('. \t\n')
             elif "Src IP:" in line:
                 cef["sourceAddress"] = line.split(':')[1].split('(')[0].strip(' \t\n')
 		cef["sourceDnsDomain"] = line.split(':')[1].split('(')[1].strip(') \t\n')
@@ -72,8 +72,8 @@ if len(sys.argv) == 2:
 
     transcript.close()
     print "****Constructs*****"
-    cef["requestURL"] = 'http://{0}{1}'.format(host,url)
-    #print cef["requestURL"] 
+    cef["fullRequestURL"] = 'http://{0}{1}'.format(host,url)
+    #print cef["fullRequestURL"] 
     #cef["deviceCustomString1"] = ''.join(raw_data1)
     #cef["deviceCustomString1Label"] = 'Request Transcript'
     #print cef["deviceCustomString1"] 
